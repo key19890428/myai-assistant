@@ -7,8 +7,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import urllib.request
 
 # ---------------- [텔레그램 연동 정보 설정 완료] ----------------
-TELEGRAM_TOKEN = "8836352742:AAGPAn6AtnrxE3_To-P_stEBMclBrBYFi0A"
-TELEGRAM_CHAT_ID = "8024224947"
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 # ----------------------------------------------------------------
 
 DATA_FILE = "calendar_events.json"

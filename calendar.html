@@ -63,6 +63,27 @@
         .btn-save:hover { background: #0f172a; }
         .btn-cancel { background: #f1f5f9; color: #475569; }
         .btn-cancel:hover { background: #e2e8f0; }
+.day-cell.today {
+    border: 2px solid var(--primary-color);
+    background: #eff6ff;
+}
+
+.day-cell.holiday {
+    background: #fffafa;
+}
+
+.day-cell.holiday .date-num,
+.day-cell.sunday .date-num {
+    color: var(--danger-color);
+}
+
+.day-cell.saturday .date-num {
+    color: var(--primary-color);
+}
+
+.day-cell.empty {
+    visibility: hidden;
+}
     </style>
 </head>
 <body>
@@ -121,45 +142,117 @@
 
 <script>
     let currentYear = 2026;
-    let currentMonth = 4; // 5월
+    let currentMonth = 4; // 0=1월, 4=5월
     let selectedDateStr = '';
-    let eventsData = {}; 
-
-    // [수정 완료] 기존 고정 주소를 제거하고, 현재 접속한 도메인 주소를 실시간으로 추적합니다.
-    const SERVER_URL = window.location.origin;
-
-    const holidays2026 = {
-        "2026-01-01": "신정", "2026-02-16": "설날연휴", "2026-02-17": "설날", "2026-02-18": "설날연휴",
-        "2026-03-01": "삼일절", "2026-03-02": "대체공휴일", "2026-05-05": "어린이날", "2026-05-24": "부처님오신날",
-        "2026-05-25": "대체공휴일", "2026-06-03": "지방선거", "2026-06-06": "현충일", "2026-08-15": "광복절",
-        "2026-08-17": "대체공휴일", "2026-09-24": "추석연휴", "2026-09-25": "추석", "2026-09-26": "추석연휴",
-        "2026-10-03": "개천절", "2026-10-05": "대체공휴일", "2026-10-09": "한글날", "2026-12-25": "성탄절"
-    };
+    let eventsData = {};
 
     const grid = document.getElementById('calendar-grid');
     const titleEl = document.getElementById('calendar-title');
 
+    /*
+      서버 주소 처리
+      - Render 배포 후: https://내주소.onrender.com/get_events
+      - 로컬 파일 실행: 서버 요청하지 않고 달력만 표시
+    */
+    const IS_FILE_MODE = window.location.protocol === 'file:';
+    const SERVER_URL = IS_FILE_MODE ? '' : window.location.origin;
+
+    /*
+      2026년 대한민국 공휴일
+      - 일요일과 겹치는 공휴일도 표시
+      - 대체공휴일 포함
+      - 2026-06-03 지방선거일 포함
+    */
+    const holidays2026 = {
+        "2026-01-01": "신정",
+
+        "2026-02-16": "설날 연휴",
+        "2026-02-17": "설날",
+        "2026-02-18": "설날 연휴",
+
+        "2026-03-01": "삼일절",
+        "2026-03-02": "대체공휴일",
+
+        "2026-05-05": "어린이날",
+        "2026-05-24": "부처님오신날",
+        "2026-05-25": "대체공휴일",
+
+        "2026-06-03": "지방선거",
+        "2026-06-06": "현충일",
+
+        "2026-08-15": "광복절",
+        "2026-08-17": "대체공휴일",
+
+        "2026-09-24": "추석 연휴",
+        "2026-09-25": "추석",
+        "2026-09-26": "추석 연휴",
+
+        "2026-10-03": "개천절",
+        "2026-10-05": "대체공휴일",
+        "2026-10-09": "한글날",
+
+        "2026-12-25": "성탄절"
+    };
+
+    function getDateString(year, month, day) {
+        return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+
     async function loadEventsFromServer() {
+        /*
+          핵심 수정:
+          서버 연결이 실패해도 renderCalendar()는 반드시 실행되게 변경
+        */
+        if (IS_FILE_MODE) {
+            console.warn("현재 파일 모드로 실행 중입니다. 서버 저장 기능은 Render 또는 Python 서버 실행 후 작동합니다.");
+            eventsData = {};
+            renderCalendar(currentYear, currentMonth);
+            return;
+        }
+
         try {
-            const response = await fetch(`${SERVER_URL}/get_events`);
+            const response = await fetch(`${SERVER_URL}/get_events`, {
+                method: 'GET',
+                cache: 'no-store'
+            });
+
             if (response.ok) {
-                eventsData = await response.json();
-                renderCalendar(currentYear, currentMonth);
+                const data = await response.json();
+                eventsData = data && typeof data === 'object' ? data : {};
+            } else {
+                console.error("서버 응답 오류:", response.status);
+                eventsData = {};
             }
         } catch (error) {
             console.error("서버에서 데이터를 가져오는데 실패했습니다:", error);
+            eventsData = {};
+        } finally {
+            renderCalendar(currentYear, currentMonth);
         }
     }
 
     async function saveEventsToServer() {
+        if (IS_FILE_MODE) {
+            alert("현재는 파일로 직접 연 상태라 서버 저장이 되지 않습니다. Render URL 또는 python server.py 실행 주소로 접속해 주세요.");
+            return false;
+        }
+
         try {
-            await fetch(`${SERVER_URL}/save_events`, {
+            const response = await fetch(`${SERVER_URL}/save_events`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(eventsData)
             });
+
+            if (!response.ok) {
+                throw new Error(`서버 저장 실패: ${response.status}`);
+            }
+
+            return true;
         } catch (error) {
             console.error("서버에 데이터를 저장하는데 실패했습니다:", error);
+            alert("서버 저장에 실패했습니다. Render 로그 또는 서버 실행 상태를 확인해 주세요.");
+            return false;
         }
     }
 
@@ -170,8 +263,7 @@
 
         titleEl.innerText = `${year}년 ${month + 1}월`;
 
-        const firstDayObj = new Date(year, month, 1);
-        const firstDayIndex = firstDayObj.getDay();
+        const firstDayIndex = new Date(year, month, 1).getDay();
         const totalDays = new Date(year, month + 1, 0).getDate();
 
         for (let i = 0; i < firstDayIndex; i++) {
@@ -180,22 +272,39 @@
             grid.appendChild(emptyCell);
         }
 
+        const today = new Date();
+        const todayStr = getDateString(today.getFullYear(), today.getMonth(), today.getDate());
+
         for (let day = 1; day <= totalDays; day++) {
             const cell = document.createElement('div');
             cell.className = 'day-cell';
-            
+
+            const dateStr = getDateString(year, month, day);
             const currentDayOfWeek = new Date(year, month, day).getDay();
-            if (currentDayOfWeek === 0) cell.classList.add('sunday');
-            else if (currentDayOfWeek === 6) cell.classList.add('saturday');
-            
-            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
             cell.dataset.date = dateStr;
-            
-            let holidayHtml = '';
-            if (holidays2026[dateStr]) {
-                cell.classList.add('holiday');
-                holidayHtml = `<span class="holiday-label">${holidays2026[dateStr]}</span>`;
+
+            if (currentDayOfWeek === 0) {
+                cell.classList.add('sunday');
             }
+
+            if (currentDayOfWeek === 6) {
+                cell.classList.add('saturday');
+            }
+
+            const holidayName = holidays2026[dateStr];
+
+            if (holidayName) {
+                cell.classList.add('holiday');
+            }
+
+            if (dateStr === todayStr) {
+                cell.classList.add('today');
+            }
+
+            const holidayHtml = holidayName
+                ? `<span class="holiday-label">${holidayName}</span>`
+                : '';
 
             cell.innerHTML = `
                 <div class="cell-top">
@@ -204,7 +313,7 @@
                 </div>
                 <div class="events-list"></div>
             `;
-            
+
             cell.onclick = (e) => {
                 if (!e.target.classList.contains('event')) {
                     openModal(dateStr);
@@ -212,17 +321,27 @@
             };
 
             const eventsListDiv = cell.querySelector('.events-list');
-            if (eventsData[dateStr]) {
+
+            if (eventsData[dateStr] && Array.isArray(eventsData[dateStr])) {
                 eventsData[dateStr].forEach((ev, index) => {
                     const eventDiv = document.createElement('div');
-                    eventDiv.className = `event type-${ev.type}`;
-                    eventDiv.innerText = ev.title;
-                    
+                    eventDiv.className = `event type-${ev.type || 'personal'}`;
+
+                    const eventTime = ev.time ? `${ev.time} ` : '';
+                    eventDiv.innerText = `${eventTime}${ev.title || '제목 없음'}`;
+
+                    eventDiv.title = [
+                        ev.title ? `일정: ${ev.title}` : '',
+                        ev.time ? `시간: ${ev.time}` : '',
+                        ev.location ? `장소: ${ev.location}` : '',
+                        ev.memo ? `메모: ${ev.memo}` : ''
+                    ].filter(Boolean).join('\n');
+
                     eventDiv.onclick = (e) => {
                         e.stopPropagation();
                         deleteEvent(dateStr, index);
                     };
-                    
+
                     eventsListDiv.appendChild(eventDiv);
                 });
             }
@@ -233,51 +352,62 @@
 
     function changeMonth(direction) {
         currentMonth += direction;
-        if (currentMonth < 0) { currentMonth = 11; currentYear--; }
-        else if (currentMonth > 11) { currentMonth = 0; currentYear++; }
+
+        if (currentMonth < 0) {
+            currentMonth = 11;
+            currentYear--;
+        } else if (currentMonth > 11) {
+            currentMonth = 0;
+            currentYear++;
+        }
+
         renderCalendar(currentYear, currentMonth);
     }
 
     function openModal(dateStr) {
         selectedDateStr = dateStr;
+
         const [y, m, d] = dateStr.split('-');
-        document.getElementById('modal-date-title').innerText = `${parseInt(m)}월 ${parseInt(d)}일 일정 추가`;
+        document.getElementById('modal-date-title').innerText =
+            `${parseInt(y)}년 ${parseInt(m)}월 ${parseInt(d)}일 일정 추가`;
+
         document.getElementById('modal').style.display = 'flex';
         toggleAlarmTime();
     }
 
     function closeModal() {
         document.getElementById('modal').style.display = 'none';
+
         document.getElementById('ev-title').value = '';
+        document.getElementById('ev-type').value = 'personal';
         document.getElementById('ev-time').value = '';
         document.getElementById('ev-location').value = '';
         document.getElementById('ev-memo').value = '';
         document.getElementById('ev-alarm').value = 'none';
         document.getElementById('ev-alarm-time').value = '';
+
         toggleAlarmTime();
     }
 
     function toggleAlarmTime() {
         const alarmSelect = document.getElementById('ev-alarm').value;
         const alarmTimeGroup = document.getElementById('alarm-time-group');
-        
-        if (alarmSelect === 'none') {
-            alarmTimeGroup.style.display = 'none';
-        } else {
-            alarmTimeGroup.style.display = 'block';
-        }
+
+        alarmTimeGroup.style.display = alarmSelect === 'none' ? 'none' : 'block';
     }
 
     async function saveEvent() {
-        const title = document.getElementById('ev-title').value;
+        const title = document.getElementById('ev-title').value.trim();
         const type = document.getElementById('ev-type').value;
         const time = document.getElementById('ev-time').value;
-        const location = document.getElementById('ev-location').value;
-        const memo = document.getElementById('ev-memo').value;
+        const location = document.getElementById('ev-location').value.trim();
+        const memo = document.getElementById('ev-memo').value.trim();
         const alarm = document.getElementById('ev-alarm').value;
-        const alarmTime = document.getElementById('alarm-time-group').style.display === 'block' ? document.getElementById('ev-alarm-time').value : '';
-        
-        if (!title.trim()) {
+        const alarmTime = alarm !== 'none'
+            ? document.getElementById('ev-alarm-time').value
+            : '';
+
+        if (!title) {
             alert('일정 제목은 필수로 입력해주세요.');
             return;
         }
@@ -290,25 +420,45 @@
         if (!eventsData[selectedDateStr]) {
             eventsData[selectedDateStr] = [];
         }
-        
-        eventsData[selectedDateStr].push({ title, type, time, location, memo, alarm, alarmTime });
 
-        await saveEventsToServer();
-        renderCalendar(currentYear, currentMonth);
-        closeModal();
+        eventsData[selectedDateStr].push({
+            title,
+            type,
+            time,
+            location,
+            memo,
+            alarm,
+            alarmTime
+        });
+
+        const saved = await saveEventsToServer();
+
+        /*
+          파일 모드에서는 저장은 안 되지만 화면 확인용으로는 표시되게 처리
+        */
+        if (saved || IS_FILE_MODE) {
+            renderCalendar(currentYear, currentMonth);
+            closeModal();
+        }
     }
 
     async function deleteEvent(dateStr, index) {
         if (!eventsData[dateStr] || !eventsData[dateStr][index]) return;
-        
-        const eventTitle = eventsData[dateStr][index].title;
+
+        const eventTitle = eventsData[dateStr][index].title || '제목 없음';
+
         if (confirm(`'${eventTitle}' 일정을 정말 삭제하시겠습니까?`)) {
             eventsData[dateStr].splice(index, 1);
+
             if (eventsData[dateStr].length === 0) {
                 delete eventsData[dateStr];
             }
-            await saveEventsToServer();
-            renderCalendar(currentYear, currentMonth);
+
+            const saved = await saveEventsToServer();
+
+            if (saved || IS_FILE_MODE) {
+                renderCalendar(currentYear, currentMonth);
+            }
         }
     }
 
